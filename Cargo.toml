@@ -1,0 +1,22 @@
+[package]
+name = "defense"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+egui = "0.22.0"
+eframe = { version = "0.22.0", default-features = false, features = [
+    "default_fonts", # Embed the default egui fonts.
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu"
+] }
+rand = "0.8.5"
+rand_pcg = { version = "0.3.1", features = ["serde1"]}
+statrs = "0.16.0"
+sampling = { git = "https://github.com/Pardoxa/sampling.git", rev = "b9b9cc5921ed580f3a5e423a0c14d64bf7f7d032" }
+
+
+# Optimize all dependencies even in debug builds:
+[profile.dev.package."*"]
+opt-level = 2
