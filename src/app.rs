@@ -28,7 +28,9 @@ pub struct AppState{
     start_time: Option<Instant>,
     log_f_logscale: bool,
     seed: u64,
-    step_size: usize
+    step_size: usize,
+    pixel: f32,
+    linewidth: f32
 }
 
 impl Default for AppState{
@@ -43,7 +45,9 @@ impl Default for AppState{
             start_time: None, 
             log_f_logscale: false,
             step_size: 1,
-            seed: 834628956578
+            seed: 834628956578,
+            pixel: 2.0,
+            linewidth: 1.5
         }
     }
 }
@@ -60,6 +64,7 @@ impl AppState{
         //    return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         //}
         cc.egui_ctx.set_visuals(Visuals::light());
+        cc.egui_ctx.set_pixels_per_point(2.0);
         Default::default()
     }
 }
@@ -86,7 +91,9 @@ impl eframe::App for AppState {
             start_time,
             log_f_logscale,
             seed,
-            step_size
+            step_size,
+            pixel,
+            linewidth
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -97,9 +104,6 @@ impl eframe::App for AppState {
         egui::SidePanel::left("side_panel")
             .default_width(300.0)
             .show(ctx, |ui| {
-
-                
-
 
 
             egui::ScrollArea::both().show(
@@ -156,6 +160,15 @@ impl eframe::App for AppState {
                     {
                         *log_f_logscale = !*log_f_logscale;
                     }
+
+                    ui.add(egui::Slider::new(pixel, 1.0..=5.0).logarithmic(false).text("Zoom"));
+                    if ui.add(egui::Button::new("Rescale"))
+                        .clicked()
+                    {
+                        ctx.set_pixels_per_point(*pixel);
+                    }
+
+                    ui.add(egui::Slider::new(linewidth, 0.0..=10.0).logarithmic(false).text("line"));
                 }
             );
             
@@ -252,8 +265,8 @@ impl eframe::App for AppState {
                                             |plot_ui|
                                             {
                                                 
-                                                let wl_line = Line::new(wl_density).name("WL Results");
-                                                let true_line = Line::new(true_density).name("analytic Results");
+                                                let wl_line = Line::new(wl_density).name("WL Results").width(*linewidth);
+                                                let true_line = Line::new(true_density).name("analytic Results").width(*linewidth);
                                                 
         
                                                 plot_ui.line(wl_line);
@@ -295,7 +308,8 @@ impl eframe::App for AppState {
                                                         .for_each(|[_, val]| *val = val.log10());
                                                 }
                                                 
-                                                let log_f_line = Line::new(tmp_log_f).name("log f");
+                                                let log_f_line = Line::new(tmp_log_f).name("log f")
+                                                .width(*linewidth);
                                                 
         
                                                 plot_ui.line(log_f_line);
@@ -327,7 +341,8 @@ impl eframe::App for AppState {
                                             |plot_ui|
                                             {
                                                 
-                                                let histogram = Line::new(hist).name("Histogram");
+                                                let histogram = Line::new(hist).name("Histogram")
+                                                    .width(*linewidth);
                                                 
         
                                                 plot_ui.line(histogram);
