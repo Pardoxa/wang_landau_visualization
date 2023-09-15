@@ -30,7 +30,8 @@ pub struct AppState{
     seed: u64,
     step_size: usize,
     pixel: f32,
-    linewidth: f32
+    linewidth: f32,
+    threshold: f64
 }
 
 impl Default for AppState{
@@ -47,7 +48,8 @@ impl Default for AppState{
             step_size: 1,
             seed: 834628956578,
             pixel: 2.0,
-            linewidth: 1.5
+            linewidth: 1.5,
+            threshold: 0.000001
         }
     }
 }
@@ -93,7 +95,8 @@ impl eframe::App for AppState {
             seed,
             step_size,
             pixel,
-            linewidth
+            linewidth,
+            threshold
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -117,7 +120,7 @@ impl eframe::App for AppState {
                         .clicked()
                     {
                         *sim = Some(
-                            SimData { c: generate_cs(*n, *seed, *step_size) }
+                            SimData { c: generate_cs(*n, *seed, *step_size, *threshold) }
                         );
                         *log_f = Vec::new();
                         *start_time = Some(Instant::now());
@@ -169,6 +172,7 @@ impl eframe::App for AppState {
                     }
 
                     ui.add(egui::Slider::new(linewidth, 0.0..=10.0).logarithmic(false).text("line"));
+                    ui.add(egui::Slider::new(threshold, 0.00000000001..=0.001).logarithmic(true).text("threshold"));
                 }
             );
             
@@ -252,7 +256,6 @@ impl eframe::App for AppState {
                                 ui.vertical(
                                     |ui|
                                     {
-                                        ui.label("Abstand vom Urspurng");
         
                                         let hight = ui.available_height();
                                         Plot::new("plot_average_etc")
@@ -265,12 +268,12 @@ impl eframe::App for AppState {
                                             |plot_ui|
                                             {
                                                 
+                                                let true_line = Line::new(true_density).name("analytic Results").width(*linewidth*1.1);
                                                 let wl_line = Line::new(wl_density).name("WL Results").width(*linewidth);
-                                                let true_line = Line::new(true_density).name("analytic Results").width(*linewidth);
                                                 
         
-                                                plot_ui.line(wl_line);
                                                 plot_ui.line(true_line);
+                                                plot_ui.line(wl_line);
                                                 
                                                 //let y = plot_ui.plot_bounds().max()[1];
                                                 //let x = plot_ui.plot_bounds().max()[0];
@@ -286,8 +289,11 @@ impl eframe::App for AppState {
                                 ui.vertical(
                                     |ui|
                                     {
-                                        ui.label("log f");
-        
+                                        let name = if *log_f_logscale{
+                                            "log10(logE(f))"
+                                        } else {
+                                            "logE(f)"
+                                        };
                                         let hight = ui.available_height();
                                         Plot::new("plot_log_f")
                                         .include_x(0.0)
@@ -308,7 +314,7 @@ impl eframe::App for AppState {
                                                         .for_each(|[_, val]| *val = val.log10());
                                                 }
                                                 
-                                                let log_f_line = Line::new(tmp_log_f).name("log f")
+                                                let log_f_line = Line::new(tmp_log_f).name(name)
                                                 .width(*linewidth);
                                                 
         
@@ -322,7 +328,7 @@ impl eframe::App for AppState {
                                                 //plot_ui.text(text);
                                             }
                                         );
-                                        ui.label("log_f");
+                                        ui.label(name);
 
                                         let hist: Vec<_> = sim_data.c.wl.hist().bin_hits_iter()
                                             .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
@@ -330,7 +336,7 @@ impl eframe::App for AppState {
 
                                         let hight = ui.available_height();
 
-                                        Plot::new("plot_log_f")
+                                        Plot::new("plot_histogram")
                                         .include_x(0.0)
                                         .include_y(0.0)
                                         .auto_bounds_y()

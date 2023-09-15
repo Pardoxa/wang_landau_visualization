@@ -10,7 +10,7 @@ pub struct CoinSeq{
     pub log_prob_true: Vec<f64>
 }
 
-pub fn generate_cs(n: usize, seed: u64, step_size: usize) -> CoinSeq
+pub fn generate_cs(n: usize, seed: u64, step_size: usize, threshold: f64) -> CoinSeq
 {
     let hist = HistUsizeFast::new_inclusive(0, n).unwrap();
     let mut rng = Pcg64::seed_from_u64(seed);
@@ -20,7 +20,7 @@ pub fn generate_cs(n: usize, seed: u64, step_size: usize) -> CoinSeq
     );
 
     let mut wl: WangLandau1T<HistogramFast<usize>, rand_pcg::Lcg128Xsl64, CoinFlipSequence<rand_pcg::Lcg128Xsl64>, CoinFlipMove, (), usize> = WangLandau1T::new(
-        0.000001, // arbitrary threshold for `log_f`(see paper), 
+        threshold, // arbitrary threshold for `log_f`(see paper), 
                  // you have to try what is good for your model
         ensemble,
         Pcg64::from_rng(&mut rng).unwrap(),
