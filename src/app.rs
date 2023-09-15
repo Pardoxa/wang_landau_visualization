@@ -268,7 +268,7 @@ impl eframe::App for AppState {
                                             |plot_ui|
                                             {
                                                 
-                                                let true_line = Line::new(true_density).name("analytic Results").width(*linewidth*1.1);
+                                                let true_line = Line::new(true_density).name("analytic Results").width(*linewidth*2.0);
                                                 let wl_line = Line::new(wl_density).name("WL Results").width(*linewidth);
                                                 
         
