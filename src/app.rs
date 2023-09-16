@@ -1,14 +1,12 @@
 use egui::{
     emath::Align,
-    {
-        Layout,
-    }, 
+    Layout, 
     plot::*,
     Visuals
 };
 use sampling::*;
-use std::{time::Instant};
-use sampling::{norm_log10_sum_to_1};
+use std::time::{Instant, Duration};
+use sampling::norm_log10_sum_to_1;
 use crate::{CoinSeq, generate_cs};
 
 
@@ -26,6 +24,8 @@ pub struct AppState{
     n: usize,
     log_f: Vec<[f64;2]>,
     start_time: Option<Instant>,
+    pause_time: Option<Instant>,
+    pause_duration: Duration,
     log_f_logscale: bool,
     seed: u64,
     step_size: usize,
@@ -49,7 +49,9 @@ impl Default for AppState{
             seed: 834628956578,
             pixel: 2.0,
             linewidth: 1.5,
-            threshold: 0.000001
+            threshold: 0.000001,
+            pause_time: None,
+            pause_duration: Duration::new(0, 0)
         }
     }
 }
@@ -96,7 +98,9 @@ impl eframe::App for AppState {
             step_size,
             pixel,
             linewidth,
-            threshold
+            threshold,
+            pause_duration,
+            pause_time
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -124,6 +128,11 @@ impl eframe::App for AppState {
                         );
                         *log_f = Vec::new();
                         *start_time = Some(Instant::now());
+                        *pause_duration = Duration::new(0, 0);
+                        if let Some(ins) = pause_time
+                        {
+                            *ins = Instant::now();
+                        }
                     }
                     let btn_text = if *pause{
                         "Fortfahren"
@@ -133,7 +142,14 @@ impl eframe::App for AppState {
                     if ui.add(egui::Button::new(btn_text))
                         .clicked()
                     {
-                        *pause = !*pause;        
+                        *pause = !*pause;
+                        if *pause {
+                            *pause_time = Some(Instant::now());
+                        } else {
+                            let dur = pause_time.as_ref().unwrap().elapsed();
+                            *pause_time = None;
+                            *pause_duration += dur;
+                        }
                     }
 
                     let btn_text = if *log_scale {
@@ -199,9 +215,12 @@ impl eframe::App for AppState {
                     );
                 }
 
-
-                let current_log_f: f64 = sim_data.c.wl.log_f();
-                log_f.push([start_time.as_ref().unwrap().elapsed().as_secs_f64(), current_log_f]);
+                if !*pause {
+                    let current_log_f: f64 = sim_data.c.wl.log_f();
+                    let ellased = start_time.as_ref().unwrap().elapsed() - *pause_duration;
+                    log_f.push([ellased.as_secs_f64(), current_log_f]);
+                }
+                
 
                 let layout = Layout{
                     main_dir: egui::Direction::LeftToRight,
