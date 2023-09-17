@@ -209,8 +209,10 @@ impl eframe::App for AppState {
                 let time = Instant::now();
                 if !*pause
                 {
-                    sim_data.c.wl.wang_landau_while(
-                        |coin_seq| Some(coin_seq.head_count()), 
+                    sim_data.c.wl.wang_landau_while_acc(
+                        |ensemble, step, old_energy| {
+                            ensemble.update_head_count(step, old_energy)
+                        }, 
                         |_| {(time.elapsed().as_millis() as f64) < (30.0_f64 * *speed)}
                     );
                 }
