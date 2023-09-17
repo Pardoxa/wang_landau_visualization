@@ -2,10 +2,11 @@ use egui::{
     emath::Align,
     Layout, 
     plot::*,
-    Visuals
+    Visuals,
+    Button
 };
 use sampling::*;
-use std::time::{Instant, Duration};
+use std::{time::{Instant, Duration}, thread};
 use sampling::norm_log10_sum_to_1;
 use crate::{CoinSeq, generate_cs};
 
@@ -14,6 +15,16 @@ pub struct SimData{
     c: CoinSeq
 }
 
+#[derive(PartialEq, Eq)]
+pub enum Scale{
+    Log,
+    Lin
+}
+#[derive(PartialEq)]
+pub enum LightMode{
+    Light,
+    Dark
+}
 
 
 pub struct AppState{
@@ -31,7 +42,10 @@ pub struct AppState{
     step_size: usize,
     pixel: f32,
     linewidth: f32,
-    threshold: f64
+    threshold: f64,
+    refine_steps: usize,
+    hist_scale: Scale,
+    l_mode: LightMode
 }
 
 impl Default for AppState{
@@ -51,7 +65,10 @@ impl Default for AppState{
             linewidth: 1.5,
             threshold: 0.000001,
             pause_time: None,
-            pause_duration: Duration::new(0, 0)
+            pause_duration: Duration::new(0, 0),
+            refine_steps: 10000000,
+            hist_scale: Scale::Lin,
+            l_mode: LightMode::Light
         }
     }
 }
@@ -100,7 +117,10 @@ impl eframe::App for AppState {
             linewidth,
             threshold,
             pause_duration,
-            pause_time
+            pause_time,
+            refine_steps,
+            hist_scale,
+            l_mode
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -118,7 +138,27 @@ impl eframe::App for AppState {
                 |ui|
                 {
 
-                    
+                    match l_mode{
+                        LightMode::Dark => {
+                            if ui.add(
+                                 Button::new("☀").frame(false)
+                             ).on_hover_text("Wechsel in den hellen Modus")
+                             .clicked(){
+                                ui.ctx().set_visuals(Visuals::light());
+                                *l_mode = LightMode::Light;
+                            }
+                        },
+                        LightMode::Light => {
+                            if ui.add(
+                                 Button::new("🌙").frame(false)
+                             ).on_hover_text("Wechsel in den Dunklen Modus")
+                             .clicked(){
+                                ui.ctx().set_visuals(Visuals::dark());
+                                *l_mode = LightMode::Dark;
+                            }
+                        }
+                    }
+
                     if ui.add(egui::Button::new("Start"))
                         .on_hover_text("Startet die Simulation.")
                         .clicked()
@@ -189,6 +229,9 @@ impl eframe::App for AppState {
 
                     ui.add(egui::Slider::new(linewidth, 0.0..=10.0).logarithmic(false).text("line"));
                     ui.add(egui::Slider::new(threshold, 0.00000000001..=0.001).logarithmic(true).text("threshold"));
+                    ui.add(egui::Slider::new(refine_steps, 0..=usize::MAX).logarithmic(true).text("E refine"));
+                    ui.radio_value(hist_scale, Scale::Lin, "Hist Lin");
+                    ui.radio_value(hist_scale, Scale::Log, "Hist Log");
                 }
             );
             
@@ -209,16 +252,36 @@ impl eframe::App for AppState {
                 let time = Instant::now();
                 if !*pause
                 {
-                    sim_data.c.wl.wang_landau_while_acc(
+                    let s = *speed;
+                    let wl = sim_data.c.wl.clone();
+                    let t = thread::spawn(
+                        move || {
+                            wl.write().unwrap().wang_landau_while_acc(
+                                |ensemble, step, old_energy| {
+                                    ensemble.update_head_count(step, old_energy)
+                                }, 
+                                |_| {(time.elapsed().as_millis() as f64) < (30.0_f64 * s)}
+                            );
+                        }
+                    );
+
+                    sim_data.c.entr.entropic_sampling_while_acc(
                         |ensemble, step, old_energy| {
                             ensemble.update_head_count(step, old_energy)
                         }, 
-                        |_| {(time.elapsed().as_millis() as f64) < (30.0_f64 * *speed)}
+                        |_| {}, 
+                        |_| {(time.elapsed().as_millis() as f64) < (30.0_f64 * s)}
                     );
+
+                    if sim_data.c.entr.step_counter() > *refine_steps{
+                        sim_data.c.entr.refine_estimate();
+                    }
+
+                    t.join().unwrap();
                 }
 
-                if !*pause {
-                    let current_log_f: f64 = sim_data.c.wl.log_f();
+                if !*pause && ! sim_data.c.wl.read().unwrap().is_finished() {
+                    let current_log_f: f64 = sim_data.c.wl.read().unwrap().log_f();
                     let ellased = start_time.as_ref().unwrap().elapsed() - *pause_duration;
                     log_f.push([ellased.as_secs_f64(), current_log_f]);
                 }
@@ -237,8 +300,10 @@ impl eframe::App for AppState {
                         layout, 
                         |ui|{
                             let max_width = ui.available_width();
-                            let mut density = sim_data.c.wl.log_density_base10();
+                            let mut density = sim_data.c.wl.read().unwrap().log_density_base10();
                             let mut true_density = sim_data.c.log_prob_true.clone();
+                            let mut e_data = sim_data.c.entr.log_density_base10();
+                            norm_log10_sum_to_1(&mut e_data);
                             norm_log10_sum_to_1(&mut density);
                             norm_log10_sum_to_1(&mut true_density);
                             if !*log_scale
@@ -247,7 +312,8 @@ impl eframe::App for AppState {
                                     .for_each(|val| *val = 10.0f64.powf(*val));
                                 true_density.iter_mut()
                                     .for_each(|val| *val = 10.0f64.powf(*val));
-                                
+                                e_data.iter_mut()
+                                    .for_each(|val| *val = 10.0f64.powf(*val));
                             }
                             let len = density.len();
     
@@ -274,118 +340,148 @@ impl eframe::App for AppState {
                                         [x,y]
                                     }
                                 ).collect();
-                                ui.vertical(
-                                    |ui|
+                            let e_density: Vec<_> = 
+                                e_data.into_iter()
+                                    .enumerate()
+                                .map(
+                                    |(idx, den)|
                                     {
-        
-                                        let hight = ui.available_height();
-                                        Plot::new("plot_average_etc")
-                                        .include_x(0.0)
-                                        .legend(Legend::default())
-                                        .height(hight - 25.0)
-                                        .width(max_width * 0.5)
-                                        .show(
-                                            ui, 
-                                            |plot_ui|
-                                            {
-                                                
-                                                let true_line = Line::new(true_density).name("analytic Results").width(*linewidth*2.0);
-                                                let wl_line = Line::new(wl_density).name("WL Results").width(*linewidth);
-                                                
-        
-                                                plot_ui.line(true_line);
-                                                plot_ui.line(wl_line);
-                                                
-                                                //let y = plot_ui.plot_bounds().max()[1];
-                                                //let x = plot_ui.plot_bounds().max()[0];
-                                                //
-                                                //let text = egui::plot::Text::new(PlotPoint { x: x / 20.0, y: y / 2.0 }, "d")
-                                                //    .anchor(Align2::LEFT_CENTER);
-                                                //plot_ui.text(text);
-                                            }
-                                        );
-                                        ui.label("heads rate");
+                                        let x = idx as f64 / len as f64;
+                                        let y = den;
+                                        [x,y]
                                     }
-                                );
-                                ui.vertical(
-                                    |ui|
-                                    {
-                                        let name = if *log_f_logscale{
-                                            "log10(logE(f))"
-                                        } else {
-                                            "logE(f)"
-                                        };
-                                        let hight = ui.available_height();
-                                        Plot::new("plot_log_f")
-                                        .include_x(0.0)
-                                        .include_y(0.0)
-                                        .auto_bounds_y()
-                                        .legend(Legend::default())
-                                        .height((hight - 25.0)*0.5)
-                                        .show(
-                                            ui, 
-                                            |plot_ui|
+                                ).collect();
+                            ui.vertical(
+                                |ui|
+                                {
+    
+                                    let hight = ui.available_height();
+                                    Plot::new("plot_average_etc")
+                                    .include_x(0.0)
+                                    .legend(Legend::default())
+                                    .height(hight - 25.0)
+                                    .width(max_width * 0.5)
+                                    .show(
+                                        ui, 
+                                        |plot_ui|
+                                        {
+                                            
+                                            let true_line = Line::new(true_density).name("analytic Results").width(*linewidth*2.0);
+                                            let wl_line = Line::new(wl_density).name("WL Results").width(*linewidth);
+                                            
+                                            
+                                            let ent_line = Line::new(e_density).name("Entropic Results").width(*linewidth);
+                                            
+                                            plot_ui.line(true_line);
+                                            plot_ui.line(wl_line);
+                                            plot_ui.line(ent_line);
+                                            
+                                            //let y = plot_ui.plot_bounds().max()[1];
+                                            //let x = plot_ui.plot_bounds().max()[0];
+                                            //
+                                            //let text = egui::plot::Text::new(PlotPoint { x: x / 20.0, y: y / 2.0 }, "d")
+                                            //    .anchor(Align2::LEFT_CENTER);
+                                            //plot_ui.text(text);
+                                        }
+                                    );
+                                    ui.label("heads rate");
+                                }
+                            );
+                            ui.vertical(
+                                |ui|
+                                {
+                                    let name = if *log_f_logscale{
+                                        "log10(logE(f))"
+                                    } else {
+                                        "logE(f)"
+                                    };
+                                    let hight = ui.available_height();
+                                    Plot::new("plot_log_f")
+                                    .include_x(0.0)
+                                    .include_y(0.0)
+                                    .auto_bounds_y()
+                                    .legend(Legend::default())
+                                    .height((hight - 25.0)*0.5)
+                                    .show(
+                                        ui, 
+                                        |plot_ui|
+                                        {
+                                            let mut tmp_log_f = log_f.clone();
+                                            if *log_f_logscale
                                             {
+                                                tmp_log_f.iter_mut()
+                                                    .for_each(|[_, val]| *val = val.log10());
+                                            }
+                                            
+                                            let log_f_line = Line::new(tmp_log_f).name(name)
+                                            .width(*linewidth);
+                                            
+    
+                                            plot_ui.line(log_f_line);
+                                            
+                                        }
+                                    );
+                                    ui.label(name);
+                                    let mut hist: Vec<_> = sim_data.c.wl.read().unwrap().hist().bin_hits_iter()
+                                        .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
+                                        .collect();
+                                    let mut ent_hist: Vec<_> = sim_data.c.entr.hist().bin_hits_iter()
+                                        .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
+                                        .collect();
 
-                                                let mut tmp_log_f = log_f.clone();
-
-                                                if *log_f_logscale
+                                    if matches!(*hist_scale, Scale::Log) {
+                                        hist.iter_mut()
+                                            .for_each(
+                                                |[_, val]|
                                                 {
-                                                    tmp_log_f.iter_mut()
-                                                        .for_each(|[_, val]| *val = val.log10());
+                                                    if *val < 1.0 {
+                                                        *val = f64::NAN;   
+                                                    } else {
+                                                        *val = val.log10();
+                                                    }
+                                                    
                                                 }
-                                                
-                                                let log_f_line = Line::new(tmp_log_f).name(name)
-                                                .width(*linewidth);
-                                                
-        
-                                                plot_ui.line(log_f_line);
-                                                
-                                                //let y = plot_ui.plot_bounds().max()[1];
-                                                //let x = plot_ui.plot_bounds().max()[0];
-                                                //
-                                                //let text = egui::plot::Text::new(PlotPoint { x: x / 20.0, y: y / 2.0 }, "d")
-                                                //    .anchor(Align2::LEFT_CENTER);
-                                                //plot_ui.text(text);
-                                            }
-                                        );
-                                        ui.label(name);
-
-                                        let hist: Vec<_> = sim_data.c.wl.hist().bin_hits_iter()
-                                            .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
-                                            .collect();
-
-                                        let hight = ui.available_height();
-
-                                        Plot::new("plot_histogram")
-                                        .include_x(0.0)
-                                        .include_y(0.0)
-                                        .auto_bounds_y()
-                                        .legend(Legend::default())
-                                        .height(hight - 25.0)
-                                        .show(
-                                            ui, 
-                                            |plot_ui|
-                                            {
-                                                
-                                                let histogram = Line::new(hist).name("Histogram")
-                                                    .width(*linewidth);
-                                                
-        
-                                                plot_ui.line(histogram);
-                                                
-                                                //let y = plot_ui.plot_bounds().max()[1];
-                                                //let x = plot_ui.plot_bounds().max()[0];
-                                                //
-                                                //let text = egui::plot::Text::new(PlotPoint { x: x / 20.0, y: y / 2.0 }, "d")
-                                                //    .anchor(Align2::LEFT_CENTER);
-                                                //plot_ui.text(text);
-                                            }
-                                        );
-                                        ui.label("histogram");
-                                        ctx.request_repaint();
+                                            );
+                                        ent_hist.iter_mut()
+                                            .for_each(
+                                                |[_, val]|
+                                                {
+                                                    if *val < 1.0 {
+                                                        *val = f64::NAN;   
+                                                    } else {
+                                                        *val = val.log10();
+                                                    }
+                                                }
+                                            );
                                     }
-                                );
+
+                                    let hight = ui.available_height();
+                                    Plot::new("plot_histogram")
+                                    .include_x(0.0)
+                                    .include_y(0.0)
+                                    .auto_bounds_y()
+                                    .legend(Legend::default())
+                                    .height(hight - 25.0)
+                                    .show(
+                                        ui, 
+                                        |plot_ui|
+                                        {
+                                            
+                                            let histogram = Line::new(hist).name("Wang Landau Histogram")
+                                                .width(*linewidth);
+                                            
+                                            let ent_line = Line::new(ent_hist).name("Entropic Histogram")
+                                                .width(*linewidth);
+    
+                                            plot_ui.line(histogram);
+                                            plot_ui.line(ent_line);
+                                            
+                                        }
+                                    );
+                                    ui.label("histogram");
+                                    ctx.request_repaint();
+                                }
+                            );
                         }
                     );
             }
