@@ -3,13 +3,12 @@ use egui::{
     Layout, 
     plot::*,
     Visuals,
-    Button
+    Button, Color32
 };
 use sampling::*;
 use std::{time::{Instant, Duration}, thread};
 use sampling::norm_log10_sum_to_1;
 use crate::{CoinSeq, generate_cs};
-
 
 pub struct SimData{
     c: CoinSeq
@@ -45,7 +44,12 @@ pub struct AppState{
     threshold: f64,
     refine_steps: usize,
     hist_scale: Scale,
-    l_mode: LightMode
+    l_mode: LightMode,
+    a_color: Color32,
+    wl_color: Color32,
+    e_color: Color32,
+    s_color: Color32,
+    show_simp_hist: bool
 }
 
 impl Default for AppState{
@@ -68,7 +72,12 @@ impl Default for AppState{
             pause_duration: Duration::new(0, 0),
             refine_steps: 10000000,
             hist_scale: Scale::Lin,
-            l_mode: LightMode::Light
+            l_mode: LightMode::Light,
+            a_color: Color32::from_rgb(0x_D8, 0x_1B, 0x_60),
+            s_color: Color32::BLACK,
+            wl_color: Color32::from_rgb(0x_1E, 0x_88, 0x_E5),
+            e_color: Color32::from_rgb(0x_ff, 0x_C1, 0x_07),
+            show_simp_hist: false
         }
     }
 }
@@ -120,7 +129,12 @@ impl eframe::App for AppState {
             pause_time,
             refine_steps,
             hist_scale,
-            l_mode
+            l_mode,
+            a_color,
+            s_color,
+            e_color,
+            wl_color,
+            show_simp_hist
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -232,6 +246,13 @@ impl eframe::App for AppState {
                     ui.add(egui::Slider::new(refine_steps, 0..=usize::MAX).logarithmic(true).text("E refine"));
                     ui.radio_value(hist_scale, Scale::Lin, "Hist Lin");
                     ui.radio_value(hist_scale, Scale::Log, "Hist Log");
+
+                    ui.color_edit_button_srgba(a_color);
+                    ui.color_edit_button_srgba(s_color);
+                    ui.color_edit_button_srgba(e_color);
+                    ui.color_edit_button_srgba(wl_color);
+
+                    ui.checkbox(show_simp_hist, "Simp Hist");
                 }
             );
             
@@ -265,6 +286,15 @@ impl eframe::App for AppState {
                         }
                     );
 
+                    let simp = sim_data.c.simple.clone();
+
+                    let t2 = thread::spawn(
+                        move ||
+                        {
+                            simp.lock().sample_while(|| (time.elapsed().as_millis() as f64) < (30.0_f64 * s))
+                        }
+                    );
+
                     sim_data.c.entr.entropic_sampling_while_acc(
                         |ensemble, step, old_energy| {
                             ensemble.update_head_count(step, old_energy)
@@ -278,6 +308,7 @@ impl eframe::App for AppState {
                     }
 
                     t.join().unwrap();
+                    t2.join().unwrap();
                 }
 
                 if !*pause && ! sim_data.c.wl.read().unwrap().is_finished() {
@@ -306,6 +337,11 @@ impl eframe::App for AppState {
                             norm_log10_sum_to_1(&mut e_data);
                             norm_log10_sum_to_1(&mut density);
                             norm_log10_sum_to_1(&mut true_density);
+                            let simp_data = if *log_scale{
+                                sim_data.c.simple.lock().get_prob_log10()
+                            } else {
+                                sim_data.c.simple.lock().get_prob()
+                            };
                             if !*log_scale
                             {
                                 density.iter_mut()
@@ -351,6 +387,18 @@ impl eframe::App for AppState {
                                         [x,y]
                                     }
                                 ).collect();
+
+                            let s_density: Vec<_> = 
+                                simp_data.into_iter()
+                                    .enumerate()
+                                .map(
+                                    |(idx, den)|
+                                    {
+                                        let x = idx as f64 / len as f64;
+                                        let y = den;
+                                        [x,y]
+                                    }
+                                ).collect();
                             ui.vertical(
                                 |ui|
                                 {
@@ -366,22 +414,26 @@ impl eframe::App for AppState {
                                         |plot_ui|
                                         {
                                             
-                                            let true_line = Line::new(true_density).name("analytic Results").width(*linewidth*2.0);
-                                            let wl_line = Line::new(wl_density).name("WL Results").width(*linewidth);
+                                            let true_line = Line::new(true_density).name("analytic Results")
+                                                .width(*linewidth*2.0)
+                                                .color(*a_color);
+                                            let wl_line = Line::new(wl_density).name("WL Results")
+                                                .width(*linewidth)
+                                                .color(*wl_color);
                                             
                                             
-                                            let ent_line = Line::new(e_density).name("Entropic Results").width(*linewidth);
+                                            let ent_line = Line::new(e_density).name("Entropic Results")
+                                                .width(*linewidth)
+                                                .color(*e_color);
+                                            let s_line = Line::new(s_density).name("Simple Results").width(*linewidth)
+                                                .color(*s_color);
                                             
                                             plot_ui.line(true_line);
                                             plot_ui.line(wl_line);
                                             plot_ui.line(ent_line);
+                                            plot_ui.line(s_line);
                                             
-                                            //let y = plot_ui.plot_bounds().max()[1];
-                                            //let x = plot_ui.plot_bounds().max()[0];
-                                            //
-                                            //let text = egui::plot::Text::new(PlotPoint { x: x / 20.0, y: y / 2.0 }, "d")
-                                            //    .anchor(Align2::LEFT_CENTER);
-                                            //plot_ui.text(text);
+                                            
                                         }
                                     );
                                     ui.label("heads rate");
@@ -414,7 +466,8 @@ impl eframe::App for AppState {
                                             }
                                             
                                             let log_f_line = Line::new(tmp_log_f).name(name)
-                                            .width(*linewidth);
+                                                .width(*linewidth)
+                                                .color(*wl_color);
                                             
     
                                             plot_ui.line(log_f_line);
@@ -426,6 +479,10 @@ impl eframe::App for AppState {
                                         .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
                                         .collect();
                                     let mut ent_hist: Vec<_> = sim_data.c.entr.hist().bin_hits_iter()
+                                        .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
+                                        .collect();
+
+                                    let mut s_hist: Vec<_> = sim_data.c.simple.lock().hist.bin_hits_iter()
                                         .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
                                         .collect();
 
@@ -453,6 +510,18 @@ impl eframe::App for AppState {
                                                     }
                                                 }
                                             );
+                                        s_hist.iter_mut()
+                                            .for_each(
+                                                |[_, val]|
+                                                {
+                                                    if *val < 1.0 {
+                                                        *val = f64::NAN;   
+                                                    } else {
+                                                        *val = val.log10();
+                                                    }
+                                                }
+                                            );
+                                        
                                     }
 
                                     let hight = ui.available_height();
@@ -468,13 +537,24 @@ impl eframe::App for AppState {
                                         {
                                             
                                             let histogram = Line::new(hist).name("Wang Landau Histogram")
-                                                .width(*linewidth);
+                                                .width(*linewidth)
+                                                .color(*wl_color);
                                             
                                             let ent_line = Line::new(ent_hist).name("Entropic Histogram")
-                                                .width(*linewidth);
+                                                .width(*linewidth)
+                                                .color(*e_color);
+
+                                            
     
                                             plot_ui.line(histogram);
                                             plot_ui.line(ent_line);
+
+                                            if *show_simp_hist{
+                                                let s_line = Line::new(s_hist).name("Simple Histogram")
+                                                    .width(*linewidth)
+                                                    .color(*s_color);
+                                                plot_ui.line(s_line);
+                                            }
                                             
                                         }
                                     );
