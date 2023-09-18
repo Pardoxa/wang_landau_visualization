@@ -554,7 +554,7 @@ impl eframe::App for AppState {
 
                                             if *show_simp_hist{
                                                 let s_line = Line::new(s_hist).name("Simple Histogram")
-                                                    .width(*linewidth*0.05)
+                                                    .width(*linewidth)
                                                     .color(*s_color);
                                                 plot_ui.line(s_line);
                                             }
