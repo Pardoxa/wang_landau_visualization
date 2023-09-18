@@ -36,18 +36,20 @@ impl Simple{
     pub fn sample_while<F>(&mut self, mut cond: F)
     where F: FnMut() -> bool
     {
-        let dist = Uniform::new_inclusive(0.0, 1.0);
+        let dist = Uniform::new_inclusive(i8::MIN, i8::MAX);
         let mut iter = dist.sample_iter(&mut self.rng);
         while cond()
         {
-            let mut count = 0;
-            for val in (&mut iter).take(self.n)
-            {
-                if val > 0.5 {
-                    count += 1;
+            for _ in 0..8 {
+                let mut count = 0;
+                for val in (&mut iter).take(self.n)
+                {
+                    if val < 0 {
+                        count += 1;
+                    }
                 }
+                self.hist.increment_quiet(count);
             }
-            self.hist.increment_quiet(count);
         }
     }
 

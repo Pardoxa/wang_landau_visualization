@@ -30,7 +30,7 @@ pub struct AppState{
     sim: Option<SimData>,
     pause: bool,
     log_scale: bool,
-    speed: f64,
+    speed: f32,
     n: usize,
     log_f: Vec<[f64;2]>,
     start_time: Option<Instant>,
@@ -281,7 +281,7 @@ impl eframe::App for AppState {
                                 |ensemble, step, old_energy| {
                                     ensemble.update_head_count(step, old_energy)
                                 }, 
-                                |_| {(time.elapsed().as_millis() as f64) < (30.0_f64 * s)}
+                                |_| {(time.elapsed().as_millis() as f32) < (30.0_f32 * s)}
                             );
                         }
                     );
@@ -291,7 +291,7 @@ impl eframe::App for AppState {
                     let t2 = thread::spawn(
                         move ||
                         {
-                            simp.lock().sample_while(|| (time.elapsed().as_millis() as f64) < (30.0_f64 * s))
+                            simp.lock().sample_while(|| (time.elapsed().as_millis() as f32) < (30.0_f32 * s))
                         }
                     );
 
@@ -300,7 +300,7 @@ impl eframe::App for AppState {
                             ensemble.update_head_count(step, old_energy)
                         }, 
                         |_| {}, 
-                        |_| {(time.elapsed().as_millis() as f64) < (30.0_f64 * s)}
+                        |_| {(time.elapsed().as_millis() as f32) < (30.0_f32 * s)}
                     );
 
                     if sim_data.c.entr.step_counter() > *refine_steps{
@@ -425,13 +425,16 @@ impl eframe::App for AppState {
                                             let ent_line = Line::new(e_density).name("Entropic Results")
                                                 .width(*linewidth)
                                                 .color(*e_color);
-                                            let s_line = Line::new(s_density).name("Simple Results").width(*linewidth)
+                                            let s_points = Points::new(s_density)
+                                                .name("Simple Results")
+                                                .radius(*linewidth*0.9)
+                                                .shape(MarkerShape::Cross)
                                                 .color(*s_color);
                                             
                                             plot_ui.line(true_line);
                                             plot_ui.line(wl_line);
                                             plot_ui.line(ent_line);
-                                            plot_ui.line(s_line);
+                                            plot_ui.points(s_points);
                                             
                                             
                                         }
@@ -551,7 +554,7 @@ impl eframe::App for AppState {
 
                                             if *show_simp_hist{
                                                 let s_line = Line::new(s_hist).name("Simple Histogram")
-                                                    .width(*linewidth)
+                                                    .width(*linewidth*0.05)
                                                     .color(*s_color);
                                                 plot_ui.line(s_line);
                                             }
