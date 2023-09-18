@@ -49,7 +49,8 @@ pub struct AppState{
     wl_color: Color32,
     e_color: Color32,
     s_color: Color32,
-    show_simp_hist: bool
+    show_simp_hist: bool,
+    pairs: bool
 }
 
 impl Default for AppState{
@@ -77,7 +78,8 @@ impl Default for AppState{
             s_color: Color32::BLACK,
             wl_color: Color32::from_rgb(0x_1E, 0x_88, 0x_E5),
             e_color: Color32::from_rgb(0x_ff, 0x_C1, 0x_07),
-            show_simp_hist: false
+            show_simp_hist: false,
+            pairs: false
         }
     }
 }
@@ -134,7 +136,8 @@ impl eframe::App for AppState {
             s_color,
             e_color,
             wl_color,
-            show_simp_hist
+            show_simp_hist,
+            pairs
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -253,6 +256,18 @@ impl eframe::App for AppState {
                     ui.color_edit_button_srgba(wl_color);
 
                     ui.checkbox(show_simp_hist, "Simp Hist");
+
+                    let text = if *pairs {
+                        "Normal"
+                    } else {
+                        "Pairs"
+                    };
+
+                    if ui.add(egui::Button::new(text))
+                        .clicked()
+                    {
+                        *pairs = !*pairs;
+                    }
                 }
             );
             
@@ -333,7 +348,10 @@ impl eframe::App for AppState {
                             let max_width = ui.available_width();
                             let mut density = sim_data.c.wl.read().unwrap().log_density_base10();
                             let mut true_density = sim_data.c.log_prob_true.clone();
-                            let mut e_data = sim_data.c.entr.log_density_base10();
+                            
+                            let mut e_data: Vec<_> = sim_data.c.entr.log_density_estimate()
+                                .iter().map(|val|  *val * std::f64::consts::LOG10_E)
+                                .collect();
                             norm_log10_sum_to_1(&mut e_data);
                             norm_log10_sum_to_1(&mut density);
                             norm_log10_sum_to_1(&mut true_density);
@@ -352,7 +370,15 @@ impl eframe::App for AppState {
                                     .for_each(|val| *val = 10.0f64.powf(*val));
                             }
                             let len = density.len();
-    
+
+                            let density: Vec<_> = if *pairs {
+                                density.windows(2)
+                                    .map(|arr| 10_f64.powf(-(arr[0] - arr[1]).abs()) )
+                                    .collect()  
+                            } else {
+                                density
+                            };
+
                             let wl_density: Vec<_> = 
                                 density.into_iter()
                                     .enumerate()
@@ -365,6 +391,14 @@ impl eframe::App for AppState {
                                     }
                                 ).collect();
     
+                            let true_density: Vec<_> = if *pairs {
+                                true_density.windows(2)
+                                    .map(|arr| 10_f64.powf(-(arr[0] - arr[1]).abs()) )
+                                    .collect()  
+                            } else {
+                                true_density
+                            };
+
                             let true_density: Vec<_> = 
                                 true_density.into_iter()
                                     .enumerate()
@@ -376,6 +410,15 @@ impl eframe::App for AppState {
                                         [x,y]
                                     }
                                 ).collect();
+
+                            let e_data: Vec<_> = if *pairs {
+                                e_data.windows(2)
+                                    .map(|arr| 10_f64.powf(-(arr[0] - arr[1]).abs()) )
+                                    .collect()  
+                            } else {
+                                e_data
+                            };
+
                             let e_density: Vec<_> = 
                                 e_data.into_iter()
                                     .enumerate()
@@ -387,6 +430,14 @@ impl eframe::App for AppState {
                                         [x,y]
                                     }
                                 ).collect();
+
+                            let simp_data: Vec<_> = if *pairs {
+                                simp_data.windows(2)
+                                    .map(|arr| 10_f64.powf(-(arr[0] - arr[1]).abs()) )
+                                    .collect()  
+                            } else {
+                                simp_data
+                            };
 
                             let s_density: Vec<_> = 
                                 simp_data.into_iter()
@@ -417,9 +468,21 @@ impl eframe::App for AppState {
                                             let true_line = Line::new(true_density).name("analytic Results")
                                                 .width(*linewidth*2.0)
                                                 .color(*a_color);
-                                            let wl_line = Line::new(wl_density).name("WL Results")
+
+                                            plot_ui.line(true_line);
+                                            if *pairs {
+                                                let wl_points = Points::new(wl_density)
+                                                .name("WL Results")
+                                                .radius(*linewidth*0.8)
+                                                .color(*wl_color);
+                                                plot_ui.points(wl_points);
+                                            } else {
+                                                let wl_line = Line::new(wl_density).name("WL Results")
                                                 .width(*linewidth)
                                                 .color(*wl_color);
+                                                plot_ui.line(wl_line);
+                                            }
+                                            
                                             
                                             
                                             let ent_line = Line::new(e_density).name("Entropic Results")
@@ -431,8 +494,8 @@ impl eframe::App for AppState {
                                                 .shape(MarkerShape::Cross)
                                                 .color(*s_color);
                                             
-                                            plot_ui.line(true_line);
-                                            plot_ui.line(wl_line);
+                                            
+                                            
                                             plot_ui.line(ent_line);
                                             plot_ui.points(s_points);
                                             
