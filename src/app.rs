@@ -5,11 +5,13 @@ use egui::{
     Visuals,
     Button, Color32
 };
+use rand::SeedableRng;
 use sampling::*;
 use std::{time::{Instant, Duration}, thread};
 use sampling::norm_log10_sum_to_1;
 use crate::{CoinSeq, generate_cs};
-
+use rand::distributions::Uniform;
+use rand::distributions::Distribution;
 pub struct SimData{
     c: CoinSeq
 }
@@ -50,7 +52,10 @@ pub struct AppState{
     e_color: Color32,
     s_color: Color32,
     show_simp_hist: bool,
-    pairs: bool
+    pairs: bool,
+    f_steps: i32,
+    noise: i32,
+    best: bool
 }
 
 impl Default for AppState{
@@ -79,7 +84,10 @@ impl Default for AppState{
             wl_color: Color32::from_rgb(0x_1E, 0x_88, 0x_E5),
             e_color: Color32::from_rgb(0x_ff, 0x_C1, 0x_07),
             show_simp_hist: false,
-            pairs: false
+            pairs: false,
+            f_steps: 0,
+            noise: 0,
+            best: false
         }
     }
 }
@@ -137,7 +145,10 @@ impl eframe::App for AppState {
             e_color,
             wl_color,
             show_simp_hist,
-            pairs
+            pairs,
+            f_steps,
+            noise,
+            best
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -268,6 +279,11 @@ impl eframe::App for AppState {
                     {
                         *pairs = !*pairs;
                     }
+                    ui.checkbox(best, "Noise");
+                    if *best{
+                        ui.add(egui::Slider::new(f_steps, 0..=7).logarithmic(false).text("Best PR"));
+                        ui.add(egui::Slider::new(noise, 0..=30).logarithmic(false).text("noise"));
+                    }
                 }
             );
             
@@ -347,6 +363,7 @@ impl eframe::App for AppState {
                         |ui|{
                             let max_width = ui.available_width();
                             let mut density = sim_data.c.wl.read().unwrap().log_density_base10();
+                            let len = density.len();
                             let mut true_density = sim_data.c.log_prob_true.clone();
                             
                             let mut e_data: Vec<_> = sim_data.c.entr.log_density_estimate()
@@ -355,6 +372,103 @@ impl eframe::App for AppState {
                             norm_log10_sum_to_1(&mut e_data);
                             norm_log10_sum_to_1(&mut density);
                             norm_log10_sum_to_1(&mut true_density);
+
+                            let total = 2.0_f64.powi(-*f_steps);
+
+                            let num = 2_u64.pow(*f_steps as u32) * 8;
+
+                            
+
+                            let list: Vec<_> = (0..=num)
+                                .map(
+                                    |v|
+                                    {
+                                        let v = v as f64 * total;
+                                        (-v).exp()
+                                    }
+                                ).collect();
+
+                            let mut rng = rand_pcg::Pcg64::seed_from_u64(2323121);
+                            let closes = |val: f64| {
+                                let r = list[0];
+                                let mut diff = (val-r).abs();
+                                let mut idx = 0;
+                                for (v, i) in list[1..].iter().zip(1..)
+                                {
+                                    let n_diff = (val-*v).abs();
+                                    if n_diff < diff {
+                                        diff = n_diff;
+                                        idx = i;
+                                    }
+                                }
+                                idx
+                            };
+
+                            let mut best_estimate: Vec<_> = true_density.windows(2)
+                                    .map(
+                                        |arr| 
+                                        closes( 10_f64.powf(-(arr[0] - arr[1]).abs()))
+                                    )
+                                    .collect();
+
+                            let uni = Uniform::new(0.0, 1.0);
+                            let other = Uniform::new_inclusive(-*noise, *noise);
+                            for i in 0..(best_estimate.len()-1)
+                            {
+                                let p = (0.5 - i as f64 / (best_estimate.len()-1) as f64).abs() * 2.0 + 0.075;
+                                if uni.sample(&mut rng) < (p*p)  {
+                                    let v = other.sample(&mut rng);
+                                    best_estimate[i] += v;
+                                    best_estimate[i+1] -= v;
+                                }
+                                
+                                
+                            }
+
+                            let mut best_estimate: Vec<[f64;2]> = best_estimate
+                            .iter()
+                            .enumerate()
+                            .map(
+                                |(i, arr)| 
+                                [i as f64 / len as f64, 
+                                    (-*arr as f64 * total).min(0.0).exp()
+                                ] 
+                            )
+                            .collect();
+
+                            if !*pairs{
+                                let start = -10.0;
+                                let mut other = vec![start];
+
+                                best_estimate.iter()
+                                    .for_each(
+                                        |v|
+                                        {
+                                            let last = other.last().unwrap();
+                                            
+                                            if v[0] < 0.5 {
+                                                let r = -v[1].log10()+last;
+                                                other.push(r);
+                                            } else {
+                                                let r = v[1].log10()+last;
+                                                other.push(r);
+                                            }
+                                        }
+                                    );
+                                norm_log10_sum_to_1(&mut other);
+                                best_estimate = 
+                                    other.iter()
+                                    .enumerate()
+                                    .map(|(i, v)| [i as f64 / len as f64, *v] )
+                                .collect();
+                                
+                                if !*log_scale {
+                                    best_estimate.iter_mut()
+                                        .for_each(|v| v[1] = 10_f64.powf(v[1]));
+                                }
+                                    
+                            } 
+
                             let simp_data = if *log_scale{
                                 sim_data.c.simple.lock().get_prob_log10()
                             } else {
@@ -369,7 +483,7 @@ impl eframe::App for AppState {
                                 e_data.iter_mut()
                                     .for_each(|val| *val = 10.0f64.powf(*val));
                             }
-                            let len = density.len();
+                            
 
                             let density: Vec<_> = if *pairs {
                                 density.windows(2)
@@ -398,6 +512,8 @@ impl eframe::App for AppState {
                             } else {
                                 true_density
                             };
+
+
 
                             let true_density: Vec<_> = 
                                 true_density.into_iter()
@@ -476,13 +592,23 @@ impl eframe::App for AppState {
                                                 .radius(*linewidth*0.8)
                                                 .color(*wl_color);
                                                 plot_ui.points(wl_points);
+
+
+
                                             } else {
                                                 let wl_line = Line::new(wl_density).name("WL Results")
                                                 .width(*linewidth)
                                                 .color(*wl_color);
                                                 plot_ui.line(wl_line);
                                             }
-                                            
+                                            if *best{
+                                                let p = Points::new(best_estimate)
+                                                .name("best")
+                                                .radius(*linewidth*0.7)
+                                                    .color(Color32::DARK_GRAY);
+                                                plot_ui.points(p);
+                                            }
+
                                             
                                             
                                             let ent_line = Line::new(e_density).name("Entropic Results")
