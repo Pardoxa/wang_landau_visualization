@@ -55,7 +55,9 @@ pub struct AppState{
     pairs: bool,
     f_steps: i32,
     noise: i32,
-    best: bool
+    best: bool,
+    limit_to_1: bool,
+    noise_seed: u64
 }
 
 impl Default for AppState{
@@ -87,7 +89,9 @@ impl Default for AppState{
             pairs: false,
             f_steps: 0,
             noise: 0,
-            best: false
+            best: false,
+            limit_to_1: false,
+            noise_seed: 1238947
         }
     }
 }
@@ -148,7 +152,9 @@ impl eframe::App for AppState {
             pairs,
             f_steps,
             noise,
-            best
+            best,
+            limit_to_1,
+            noise_seed
         } = self;
         //// Examples of how to create different panels and windows.
         // Pick whichever suits you.
@@ -283,6 +289,8 @@ impl eframe::App for AppState {
                     if *best{
                         ui.add(egui::Slider::new(f_steps, 0..=7).logarithmic(false).text("Best PR"));
                         ui.add(egui::Slider::new(noise, 0..=30).logarithmic(false).text("noise"));
+                        ui.add(egui::Slider::new(noise_seed, 0..=2000012).logarithmic(false).text("noise seed"));
+                        ui.checkbox(limit_to_1, "limit to 1");
                     }
                 }
             );
@@ -388,7 +396,7 @@ impl eframe::App for AppState {
                                     }
                                 ).collect();
 
-                            let mut rng = rand_pcg::Pcg64::seed_from_u64(2323121);
+                            let mut rng = rand_pcg::Pcg64::seed_from_u64(*noise_seed);
                             let closes = |val: f64| {
                                 let r = list[0];
                                 let mut diff = (val-r).abs();
@@ -425,13 +433,29 @@ impl eframe::App for AppState {
                                 
                             }
 
+                            fn with_limit(v: f64) -> f64
+                            {
+                                v.min(0.0).exp()
+                            }
+
+                            fn without_limit(v: f64) -> f64
+                            {
+                                v.exp()
+                            }
+
+                            let fun = if *limit_to_1{
+                                with_limit
+                            } else {
+                                without_limit
+                            };
+
                             let mut best_estimate: Vec<[f64;2]> = best_estimate
                             .iter()
                             .enumerate()
                             .map(
                                 |(i, arr)| 
                                 [i as f64 / len as f64, 
-                                    (-*arr as f64 * total).min(0.0).exp()
+                                    fun(-*arr as f64 * total)
                                 ] 
                             )
                             .collect();
@@ -602,11 +626,20 @@ impl eframe::App for AppState {
                                                 plot_ui.line(wl_line);
                                             }
                                             if *best{
-                                                let p = Points::new(best_estimate)
-                                                .name("best")
-                                                .radius(*linewidth*0.7)
-                                                    .color(Color32::DARK_GRAY);
-                                                plot_ui.points(p);
+                                                if *log_scale{
+                                                    let p = Points::new(best_estimate)
+                                                    .name("best")
+                                                    .radius(*linewidth*0.7)
+                                                        .color(Color32::DARK_GRAY);
+                                                    plot_ui.points(p);
+                                                }else {
+                                                    let p = Line::new(best_estimate)
+                                                    .name("best")
+                                                    .width(*linewidth*0.9)
+                                                        .color(Color32::DARK_GRAY);
+                                                    plot_ui.line(p);
+                                                }
+                                                
                                             }
 
                                             
