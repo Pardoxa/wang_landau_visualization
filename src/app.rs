@@ -263,7 +263,7 @@ impl eframe::App for AppState {
 
                     ui.add(egui::Slider::new(linewidth, 0.0..=10.0).logarithmic(false).text("line"));
                     ui.add(egui::Slider::new(threshold, 0.00000000001..=0.001).logarithmic(true).text("threshold"));
-                    ui.add(egui::Slider::new(refine_steps, 0..=usize::MAX).logarithmic(true).text("E refine"));
+                    ui.add(egui::Slider::new(refine_steps, 100000..=10000000000).logarithmic(true).text("E refine"));
                     ui.radio_value(hist_scale, Scale::Lin, "Hist Lin");
                     ui.radio_value(hist_scale, Scale::Log, "Hist Log");
 
@@ -420,14 +420,14 @@ impl eframe::App for AppState {
                                     .collect();
 
                             let uni = Uniform::new(0.0, 1.0);
-                            let other = Uniform::new_inclusive(-*noise, *noise);
-                            for i in 0..(best_estimate.len()-1)
+                            let other = Uniform::new_inclusive(0, *noise);
+                            for i in 1..(best_estimate.len()-1)
                             {
                                 let p = (0.5 - i as f64 / (best_estimate.len()-1) as f64).abs() * 2.0 + 0.075;
                                 if uni.sample(&mut rng) < (p*p)  {
                                     let v = other.sample(&mut rng);
-                                    best_estimate[i] += v;
-                                    best_estimate[i+1] -= v;
+                                    best_estimate[i-1] += v;
+                                    best_estimate[i] -= v;
                                 }
                                 
                                 
@@ -590,14 +590,42 @@ impl eframe::App for AppState {
                                         [x,y]
                                     }
                                 ).collect();
+
+
                             ui.vertical(
                                 |ui|
                                 {
-    
+                                    let legend = Legend::default().position(Corner::RightBottom)
+                                        .background_alpha(0.5);
                                     let hight = ui.available_height();
-                                    Plot::new("plot_average_etc")
+                                    let mut p = Plot::new("plot_average_etc")
                                     .include_x(0.0)
-                                    .legend(Legend::default())
+                                    .x_axis_formatter(|a, _| format!("{a}"));
+
+                                    if *log_scale{
+                                        p = p.y_axis_formatter(
+                                            |a,_| 
+                                            {
+                                                let s = format!("{a}");
+                                                let ex: String = s.chars().map(exchange).collect();
+                                                format!("10{ex}")
+                                            }
+                                        );
+                                    }
+                                    
+                                    p.x_grid_spacer(
+                                        |_|
+                                        {
+                                            vec![
+                                                GridMark { value: 0.0, step_size: 0.5 },
+                                                GridMark { value: 0.25, step_size: 0.5 },
+                                                GridMark { value: 0.5, step_size: 0.5 },
+                                                GridMark { value: 0.75, step_size: 0.5 },
+                                                GridMark { value: 1.0, step_size: 0.5 },
+                                            ]
+                                        }
+                                    )
+                                    .legend(legend)
                                     .height(hight - 25.0)
                                     .width(max_width * 0.5)
                                     .show(
@@ -661,7 +689,7 @@ impl eframe::App for AppState {
                                             
                                         }
                                     );
-                                    ui.label("heads rate");
+                                    ui.label("Probability of heads rate");
                                 }
                             );
                             ui.vertical(
@@ -672,6 +700,9 @@ impl eframe::App for AppState {
                                     } else {
                                         "logE(f)"
                                     };
+
+                                    
+
                                     let hight = ui.available_height();
                                     Plot::new("plot_log_f")
                                     .include_x(0.0)
@@ -805,3 +836,39 @@ impl eframe::App for AppState {
 }
 
 
+fn exchange(c: char) -> char
+{
+    
+    let super_list = [
+        '⁰',
+        '¹',
+        '²',
+        '³',
+        '⁴',
+        '⁵',
+        '⁶',
+        '⁷',
+        '⁸',
+        '⁹',
+        '-'
+    ];
+    let old_list = [
+        '0',
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+        '8',
+        '9',
+        '-'
+    ];
+    if let Some(p) = old_list.iter().position(|&x| x == c){
+        super_list[p]
+    } else {
+        c
+    }
+    
+}
