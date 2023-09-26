@@ -3,7 +3,10 @@ use egui::{
     Layout, 
     plot::*,
     Visuals,
-    Button, Color32
+    Button, Color32,
+    FontDefinitions,
+    FontData,
+    FontFamily
 };
 use rand::SeedableRng;
 use sampling::*;
@@ -78,7 +81,7 @@ impl Default for AppState{
             threshold: 0.000001,
             pause_time: None,
             pause_duration: Duration::new(0, 0),
-            refine_steps: 10000000,
+            refine_steps: 30000000,
             hist_scale: Scale::Lin,
             l_mode: LightMode::Light,
             a_color: Color32::from_rgb(0x_D8, 0x_1B, 0x_60),
@@ -109,7 +112,19 @@ impl AppState{
         //}
         cc.egui_ctx.set_visuals(Visuals::light());
         cc.egui_ctx.set_pixels_per_point(2.0);
+        
+
+        let mut fonts = FontDefinitions::default();
+        fonts.font_data.insert(
+            "my_font".to_owned(),
+            FontData::from_static(include_bytes!("../DejaVu_Sans/DejaVuSans.ttf"))); // .ttf and .otf supported
+        fonts.families.get_mut(&FontFamily::Proportional).unwrap()
+            .insert(0, "my_font".to_owned());
+
+        cc.egui_ctx.set_fonts(fonts);
+        
         Default::default()
+
     }
 }
 
@@ -602,7 +617,7 @@ impl eframe::App for AppState {
                                     .include_x(0.0)
                                     .x_axis_formatter(|a, _| format!("{a}"));
 
-                                    if *log_scale{
+                                    if *log_scale && !*pairs{
                                         p = p.y_axis_formatter(
                                             |a,_| 
                                             {
@@ -850,7 +865,7 @@ fn exchange(c: char) -> char
         '⁷',
         '⁸',
         '⁹',
-        '-'
+        '⁻'
     ];
     let old_list = [
         '0',

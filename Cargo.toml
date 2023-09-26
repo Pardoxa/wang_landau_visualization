@@ -20,3 +20,8 @@ sampling = { git = "https://github.com/Pardoxa/sampling.git", rev = "b9b9cc5921e
 # Optimize all dependencies even in debug builds:
 [profile.dev.package."*"]
 opt-level = 2
+
+[profile.release]
+opt-level=3
+lto=true
+strip=true
