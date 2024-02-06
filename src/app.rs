@@ -1,13 +1,7 @@
 use egui::{
-    emath::Align,
-    Layout, 
-    plot::*,
-    Visuals,
-    Button, Color32,
-    FontDefinitions,
-    FontData,
-    FontFamily
+    emath::Align, Button, Color32, FontData, FontDefinitions, FontFamily, Layout, Vec2b, Visuals
 };
+use egui_plot::*;
 use rand::SeedableRng;
 use sampling::*;
 use std::{time::{Instant, Duration}, thread};
@@ -615,13 +609,13 @@ impl eframe::App for AppState {
                                     let hight = ui.available_height();
                                     let mut p = Plot::new("plot_average_etc")
                                     .include_x(0.0)
-                                    .x_axis_formatter(|a, _| format!("{a}"));
+                                    .x_axis_formatter(|g, _, _| format!("{}", g.value));
 
                                     if *log_scale && !*pairs{
                                         p = p.y_axis_formatter(
-                                            |a,_| 
+                                            |g, _,_| 
                                             {
-                                                let s = format!("{a}");
+                                                let s = format!("{}", g.value);
                                                 let ex: String = s.chars().map(exchange).collect();
                                                 format!("10{ex}")
                                             }
@@ -643,6 +637,8 @@ impl eframe::App for AppState {
                                     .legend(legend)
                                     .height(hight - 25.0)
                                     .width(max_width * 0.5)
+                                    .y_axis_label("Probability of heads rate")
+                                    .x_axis_label("Heads rate")
                                     .show(
                                         ui, 
                                         |plot_ui|
@@ -704,7 +700,6 @@ impl eframe::App for AppState {
                                             
                                         }
                                     );
-                                    ui.label("Probability of heads rate");
                                 }
                             );
                             ui.vertical(
@@ -722,9 +717,11 @@ impl eframe::App for AppState {
                                     Plot::new("plot_log_f")
                                     .include_x(0.0)
                                     .include_y(0.0)
-                                    .auto_bounds_y()
+                                    .auto_bounds(Vec2b::new(true, true))
                                     .legend(Legend::default())
                                     .height((hight - 25.0)*0.5)
+                                    .y_axis_label(name)
+                                    .x_axis_label("Run time in seconds")
                                     .show(
                                         ui, 
                                         |plot_ui|
@@ -745,7 +742,6 @@ impl eframe::App for AppState {
                                             
                                         }
                                     );
-                                    ui.label(name);
                                     let mut hist: Vec<_> = sim_data.c.wl.read().unwrap().hist().bin_hits_iter()
                                         .map(|(bin, hits)| [bin as f64 / len as f64, hits as f64])
                                         .collect();
@@ -799,9 +795,11 @@ impl eframe::App for AppState {
                                     Plot::new("plot_histogram")
                                     .include_x(0.0)
                                     .include_y(0.0)
-                                    .auto_bounds_y()
+                                    .auto_bounds(Vec2b::new(false, true))
                                     .legend(Legend::default())
                                     .height(hight - 25.0)
+                                    .x_axis_label("histogram")
+                                    .y_axis_label("#hits")
                                     .show(
                                         ui, 
                                         |plot_ui|
@@ -829,7 +827,6 @@ impl eframe::App for AppState {
                                             
                                         }
                                     );
-                                    ui.label("histogram");
                                     ctx.request_repaint();
                                 }
                             );
